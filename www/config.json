@@ -1,3 +1,5 @@
 {
-    "serviceUrl": "https://hapi.fhir.org/baseDstu3"
+    "serviceUrl": "https://hapi.fhir.org/baseDstu3",
+    "defaultPatientId": "example",
+    "disableAuth": true
 }

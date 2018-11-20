@@ -175,8 +175,6 @@
             patient_banner_wrap.className = 'visible';
         }
 
-        var urlParams = new URLSearchParams(window.location.search);
-        var patientId = urlParams.has('patient') ? urlParams.get('patient') : 'example';
 
         //Setting paths to retrieve configuration and tokens:
         var configUrl = '/config.json';
@@ -190,6 +188,11 @@
         //Read the configuration with the Service URL
         $.getJSON( configUrl, function (appConfig) {
             var serviceUrl = appConfig.serviceUrl;
+            var authType = appConfig.disableAuth ? 'none': 'bearer';
+
+            var urlParams = new URLSearchParams(window.location.search);
+            var patientId = urlParams.has('patient') ? urlParams.get('patient') : appConfig.defaultPatientId;
+
             console.log('Service URL: ' + serviceUrl);
 
             //Now let's get the access token from the App Service
@@ -198,7 +201,7 @@
                     serviceUrl: serviceUrl,
                     patientId: patientId,
                     auth: {
-                        type: 'bearer',
+                        type: authType,
                         token: me[0].access_token
                     }
                 };
