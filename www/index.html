@@ -190,7 +190,7 @@
         //Read the configuration with the Service URL
         $.getJSON( configUrl, function (appConfig) {
             var serviceUrl = appConfig.serviceUrl;
-            console.log('Service URL' + serviceUrl);
+            console.log('Service URL: ' + serviceUrl);
 
             //Now let's get the access token from the App Service
             $.getJSON( meUrl, function( me ) {
