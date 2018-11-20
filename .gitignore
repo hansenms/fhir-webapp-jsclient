@@ -1,2 +1,3 @@
 www/.auth/
 config-local.json
+*.local.json
