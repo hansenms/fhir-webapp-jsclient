@@ -1,0 +1,291 @@
+<!--
+    Example Single Page JavaScript FHIR client for Azure Web App
+
+    SMART on FHIR prescribes a certain launch sequence for apps (http://hl7.org/fhir/smart-app-launch/).
+    When deploying a FHIR client in an Azure Web App, you can use Azure App Service Authentication (https://docs.microsoft.com/en-us/azure/app-service/app-service-authentication-overview).
+    This will allow you to obatin an access token from Azure AD and use this when instanciating the FHIR client. 
+
+    If App Service Authentication is enabled, the user will be forced to sign in and after login,
+    the authentication information will be available in the '/.auth/me' file. The access token can be retrived from there.
+
+    This simple app is an illustration of how to accomplish that. 
+
+    For local debugging, place the contents of /.auth/me (from the Web App) at the same relative path to this index.html
+    Specifically, if this file is located at {ROOT}/index.html, place the file at {ROOT}/.auth/me
+
+    The service URL of the FHIR server MUST be provided in the config.json file at the same relative 
+    location as this file.
+    
+    The patient id can be specified with the 'patient=' query parameter, e.g.
+
+    https://MY-APP-NAME.azurewebsites.net/index.html?patient=my-patient-id
+-->
+<!DOCTYPE html>
+<html>
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="css/bootstrap.min.css">
+    <!-- iconic -->
+    <link href="css/open-iconic-bootstrap.css" rel="stylesheet">
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+
+    <script src='http://code.jquery.com/jquery-2.1.4.min.js'></script>
+    <script src="js/popper.min.js"></script>
+    <script src="js/bootstrap.min.js"></script>
+    <script src='js/fhir-client.js'></script>
+
+    <script type="text/javascript">
+        function upperCaseFirst(string) {
+            return string.charAt(0).toUpperCase() + string.slice(1);
+        }
+
+        function displayPatient(pt) {
+            // The display name - select the official one
+            var _name = document.getElementById('display_name');
+            if (!pt.name) {
+                _name.innerHTML = 'N/A';
+            }
+            else {
+                var official_name = pt.name.find(function(n) {
+                    return n.use == 'official';
+                });
+
+                if (official_name == null) {
+                    _name.innerHTML = 'N/A';
+                }
+                else {
+                    var display_name = ''
+                    if (official_name.family != null) {
+                        display_name = official_name.family.toUpperCase();
+                    }
+                    if (official_name.given != null && official_name.given.length > 0) {
+                        display_name += ', ' + official_name.given[0];
+                    }
+                    if (official_name.prefix != null) {
+                        display_name += ' (' + official_name.prefix + ')';
+                    }
+
+                    _name.innerHTML = display_name;
+                }
+            }
+            // Date of Birth
+            var _dob_age = document.getElementById('dob_age');
+            if (!pt.birthDate) {
+                _dob_age.innerHTML = 'N/A';
+            }
+            else {
+                var now = new Date();
+
+                var dob = new Date(Date.parse(pt.birthDate));
+                var options = {month: 'short'};
+                // NHS format; could we change this to just use toLocaleDateString() with correct options?
+                var dob_string = dob.getDate() + "-" + dob.toLocaleDateString('en-GB', options) + '-' + dob.getFullYear();
+
+                var month_diff = now.getMonth() - dob.getMonth();
+                // TODO - does not take into account month_diff
+                var age = Math.floor(now.getFullYear() - dob.getFullYear())
+                dob_string = dob_string + ' (' + age + 'y)';
+                _dob_age.innerHTML = dob_string;
+
+                // console.log(pt.birthDate);
+                // console.log(dob);
+                // console.log(dob_string);
+            }
+
+            var _gender = document.getElementById('gender');
+            _gender.innerHTML = pt.gender ? upperCaseFirst(pt.gender) : 'N/A';
+
+            // Find a specific identifier type e.g. NHS No or SSN
+            var _identifier_type = document.getElementById('identifier_type');
+            var _identifier = document.getElementById('identifier');
+
+            if (!pt.identifier) {
+                _identifier_type.innerHTML = 'N/A';
+                _identifier.innerHTML = 'N/A'
+            }
+            else {
+                const SYSTEM_SSN = "http://hl7.org/fhir/sid/us-ssn";
+                const SYSTEM_NHS = "https://fhir.nhs.uk/Id/nhs-number";
+
+                // TODO _ this is the SSN option; will be different for NHS No.
+                var required_identifier = pt.identifier.find(function(i) {
+                    // US SSN OR NHS Number
+                    return  i.system == SYSTEM_SSN || i.system == SYSTEM_NHS;
+
+                });
+                if (required_identifier != null) {
+                    if (required_identifier.system == SYSTEM_NHS) {
+                        _identifier_type.innerHTML = "NHS No.";
+                    }
+                    else if (required_identifier.system == SYSTEM_SSN) {
+                        _identifier_type.innerHTML = "SSN";
+                    }
+                    _identifier.innerHTML = required_identifier.value; 
+                }
+                else {
+                    _identifier_type.innerHTML = 'N/A';
+                    _identifier.innerHTML = 'N/A'       
+                }
+            }
+
+            var _address = document.getElementById('address');
+
+            if (!pt.address || pt.address.length == 0) {
+                _address.innerHTML = 'N/A';
+            }
+            else {
+                var address =  pt.address[0];
+                var address_text = address.line != null ? address.line.join(', ') : '';
+
+                address_text += address.city != null ? ' ' + address.city : '';
+                address_text += address.state != null ? ' ' + address.state : '';
+                address_text += address.postalCode != null ? ' ' + address.postalCode : '';
+                
+                if (address_text.length > 25) {
+                    _address.innerHTML = address_text.substring(0, 25) + '...';
+                }   
+                else {
+                    _address.innerHTML = address_text                 
+                }
+                _address.title = address_text;
+            }
+
+            var _phone = document.getElementById('phone');
+
+            if (!pt.telecom || pt.telecom.length == 0) {
+                _phone.innerHTML = 'N/A';
+            }
+            else {
+                var phone = pt.telecom.find(function (t) {
+                    return t.system =='phone';
+                })
+                if (!phone) {
+                    _phone.innerHTML = 'N/A';
+                }
+                else {
+                    _phone.innerHTML = phone.value;
+                    _phone.title = "Use: " + phone.use;
+                }
+            }
+
+            // Toggle visibility of the patient banner
+            patient_banner_wrap.className = 'visible';
+        }
+
+        var urlParams = new URLSearchParams(window.location.search);
+        var patientId = urlParams.has('patient') ? urlParams.get('patient') : 'example';
+
+        //Setting paths to retrieve configuration and tokens:
+        var configUrl = '/config.json';
+        var meUrl = '/.auth/me';
+
+        if (window.location.protocol  == 'file:') {
+            configUrl = './config-local.json';
+            meUrl = './.auth/me';
+        }
+
+        //Read the configuration with the Service URL
+        $.getJSON( configUrl, function (appConfig) {
+            var serviceUrl = appConfig.serviceUrl;
+
+            //Now let's get the access token from the App Service
+            $.getJSON( meUrl, function( me ) {
+                var demo = {
+                    serviceUrl: serviceUrl,
+                    patientId: patientId,
+                    auth: {
+                        type: 'bearer',
+                        token: me[0].access_token
+                    }
+                };
+                var smart = FHIR.client(demo);
+            
+                smart.patient.read().then(function(pt) {
+                    displayPatient(pt);
+                });
+            });
+        });
+    </script>
+
+    <style>
+        .patient_banner_top_tr {
+            height: 75px;
+        }
+        .patient_banner_top_tr td {
+            vertical-align: middle;
+        }
+        .patient_banner_low_tr {
+            height: 20px;
+        }
+        .patient_banner_low_tr td {
+            vertical-align: middle;
+            font-size: 12px;
+        }
+        .known_allergies {
+            color: lightgrey;
+        }
+    </style>
+  <title>Patient View Demo</title>
+  </head>
+  <body>
+    <div class="container">
+    
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+      <a class="navbar-brand">Patient View Demo</a>
+      <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navbarSupportedContent">
+        <ul class="navbar-nav mr-auto"><!-- deliberately empty --></ul>
+        <ul class="navbar-nav navbar-right">
+            <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                  Documentation
+                </a>
+                <div class="dropdown-menu" aria-labelledby="navbarDropdown">
+                  <a class="dropdown-item" href="http://docs.smarthealthit.org/">SMART on FHIR docs</a>
+                  <a class="dropdown-item" href="https://launch.smarthealthit.org/">SMART App Launcher</a>
+                  <a class="dropdown-item" href="http://www.isb.nhs.uk/use/baselines/bannerquick.pdf">NHS Patient Banner (PDF)</a>
+            </li>  
+            <li class="nav-item active">
+                <a id="launch_anchor" class="btn btn-outline-success" href="">Re-launch <span class="sr-only">(current)</span></a>
+            </li>
+        </ul>
+      </div>
+    </nav>
+
+    <br/>
+
+    <div id="patient_banner_wrap" class="invisible">
+    
+    <table id="patient_banner" class="table table-borderless">
+        <tbody>
+            <tr class="patient_banner_top_tr">
+                <td colspan="3" class="border-top border-bottom border-left"><b><span id="display_name"></span></b></td>
+                <td class="border-top border-bottom"><i>Born</i> <b><span id="dob_age"></span></b></td>
+                <td class="border-top border-bottom"><i>Gender</i> <b><span id="gender"></span></b></td>
+                <td colspan="2" class="border-top border-bottom border-right"><i><span id="identifier_type"></span></i> <b><span id="identifier"></span></b></td>
+            </tr>
+            <tr class="patient_banner_low_tr">
+                <td class="border" colspan="2"><i>Address</i> <b><span id="address">&nbsp;</span></b></td>
+                <td class="border"><i>Phone</i> <b><span id="phone"></span></b></td>
+                <td class="border">&nbsp;</td>
+                <td class="border">&nbsp;</td>
+                <td class="border"><span class="known_allergies">Known Allergies</span></td>
+                <td class="border">
+                    <button id="patient_banner_low_expand" type="button" class="btn btn-outline-secondary btn-sm" autocomplete="off">
+                    <span id="patient_banner_low_expand" class="oi oi-chevron-bottom"></span>
+                </button>
+                </td>
+            </tr>
+        </tbody>
+    </table>    
+
+    </div>
+    </div>
+  </body>
+</html>
